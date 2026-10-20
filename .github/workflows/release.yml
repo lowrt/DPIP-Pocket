@@ -11,7 +11,7 @@ name: Release
 
 on:
   push:
-    branches: ["main"]
+    branches: ["test5"]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -305,15 +305,15 @@ jobs:
       # No teardown step. The keychain lives under $RUNNER_TEMP on a VM GitHub
       # destroys, which is the same reason `Remove the API key` further down is
       # about the repository checkout rather than the machine.
-      - name: Install the iOS signing identity
-        if: matrix.platform == 'ios'
-        env:
-          # Through the environment rather than `${{ }}` inside the script
-          # body: a secret spliced into a shell by string substitution is one
-          # quote away from being read as shell.
-          APPLE_DEV_CERT_BASE64: ${{ secrets.APPLE_DEV_CERT_BASE64 }}
-          APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
-        run: bash tool/release/ios_keychain.sh
+      # - name: Install the iOS signing identity
+      #   if: matrix.platform == 'ios'
+      #   env:
+      #     # Through the environment rather than `${{ }}` inside the script
+      #     # body: a secret spliced into a shell by string substitution is one
+      #     # quote away from being read as shell.
+      #     APPLE_DEV_CERT_BASE64: ${{ secrets.APPLE_DEV_CERT_BASE64 }}
+      #     APPLE_DEV_CERT_PASSWORD: ${{ secrets.APPLE_DEV_CERT_PASSWORD }}
+      #   run: bash tool/release/ios_keychain.sh
 
       # `--build-name` is what reaches `CFBundleShortVersionString`, so it is
       # the *train*: Apple rejects anything that is not one to three integers
@@ -381,6 +381,28 @@ jobs:
             ( cd ios && xcodebuild -workspace Runner.xcworkspace -scheme Runner \
                 -configuration Release -sdk iphoneos \
                 -archivePath "$RUNNER_TEMP/Runner.xcarchive" "${AUTH[@]}" archive )
+
+            # The Runner target's Crashlytics build phase uploads these symbols.
+            # Keep the exact archive output too, so a failed upload can be retried
+            # after the ephemeral runner has gone away.
+            dsym="$RUNNER_TEMP/Runner.xcarchive/dSYMs/Runner.app.dSYM"
+            binary="$RUNNER_TEMP/Runner.xcarchive/Products/Applications/Runner.app/Runner"
+            if [ ! -d "$dsym" ]; then
+              echo "::error::archive contains no Runner.app.dSYM"
+              exit 1
+            fi
+            binary_uuid="$(dwarfdump --uuid "$binary" | awk '{print $2}' | sort)"
+            dsym_uuid="$(dwarfdump --uuid "$dsym" | awk '{print $2}' | sort)"
+            if [ "$binary_uuid" != "$dsym_uuid" ]; then
+              echo "::error::Runner binary and dSYM UUIDs do not match"
+              echo "binary: $binary_uuid"
+              echo "dSYM: $dsym_uuid"
+              exit 1
+            fi
+            ditto -c -k --sequesterRsrc --keepParent \
+              "$RUNNER_TEMP/Runner.xcarchive/dSYMs" \
+              "$RUNNER_TEMP/DPIP-$DPIP_LABEL-$RELEASE_CODE-dSYMs.zip"
+
             xcodebuild -exportArchive \
               -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
               -exportOptionsPlist ios/ExportOptions.plist \
@@ -397,14 +419,14 @@ jobs:
       # implementation detail that has been renamed between AGP versions. An
       # empty output makes the upload skip symbols rather than fail the release
       # — losing symbolication is recoverable, losing the build is not.
-      - name: Locate native debug symbols
-        id: symbols
-        if: matrix.platform == 'android'
-        run: |
-          dir="$(find build/app/intermediates/merged_native_libs/release \
-                   -type d -name lib -path '*/out/*' 2>/dev/null | head -1)"
-          [ -n "$dir" ] || echo "::warning::no native symbol directory found; uploading without symbols"
-          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+      # - name: Locate native debug symbols
+      #   id: symbols
+      #   if: matrix.platform == 'android'
+      #   run: |
+      #     dir="$(find build/app/intermediates/merged_native_libs/release \
+      #              -type d -name lib -path '*/out/*' 2>/dev/null | head -1)"
+      #     [ -n "$dir" ] || echo "::warning::no native symbol directory found; uploading without symbols"
+      #     echo "dir=$dir" >> "$GITHUB_OUTPUT"
 
       # Every Android build lands in internal testing. A tag still creates the
       # signed release artifact and GitHub release, but promotion to production
@@ -412,20 +434,20 @@ jobs:
       # timing remain a human decision, just as App Store submission does on
       # iOS. CI therefore never opens or commits a production-track Edit that
       # can race with an operator already working in the console.
-      - name: Upload to Play
-        if: matrix.platform == 'android'
-        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
-        with:
-          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-          packageName: com.exptech.dpip
-          releaseFiles: build/app/outputs/bundle/release/app-release.aab
-          # `track` is deprecated in favour of the plural, which takes a list.
-          tracks: internal
-          status: completed
-          releaseName: ${{ needs.version.outputs.label }}
-          # Lets Play symbolicate native crashes (MapLibre, the mesh stack)
-          # instead of showing raw addresses.
-          debugSymbols: ${{ steps.symbols.outputs.dir }}
+      # - name: Upload to Play
+      #   if: matrix.platform == 'android'
+      #   uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+      #   with:
+      #     serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+      #     packageName: com.exptech.dpip
+      #     releaseFiles: build/app/outputs/bundle/release/app-release.aab
+      #     # `track` is deprecated in favour of the plural, which takes a list.
+      #     tracks: internal
+      #     status: completed
+      #     releaseName: ${{ needs.version.outputs.label }}
+      #     # Lets Play symbolicate native crashes (MapLibre, the mesh stack)
+      #     # instead of showing raw addresses.
+      #     debugSymbols: ${{ steps.symbols.outputs.dir }}
 
       # There is one iOS destination and this is it, for a snapshot and a
       # release alike: App Store Connect. A build lands there, TestFlight is
@@ -439,28 +461,28 @@ jobs:
       # first submission needs screenshots, review notes and export-compliance
       # answers, and automating a step nobody has yet performed by hand is how
       # a release gets stuck in a state no one recognises.
-      - name: Upload to App Store Connect
-        if: matrix.platform == 'ios'
-        uses: apple-actions/upload-testflight-build@155ea93be9ee6d5186c71f660a612f5eddb14510 # v5.6.0
-        with:
-          app-path: DPIP-${{ needs.version.outputs.label }}.ipa
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-          # The upload finishes; the wait after it cannot. The action signs one
-          # App Store Connect JWT with a 600-second life (`n=600` in its bundled
-          # dist/index.js) and never re-signs it, while its own poll schedule
-          # sleeps 60 + 120 + 240 + 300 = 720 seconds before giving up. Any build
-          # that takes longer than the token lives reports
-          # `401 NOT_AUTHORIZED` — after the binary is already on TestFlight.
-          #
-          # Nothing here needs the wait: it exists so the action can write
-          # metadata afterwards, and this step sets neither `release-notes` nor
-          # `uses-non-exempt-encryption` — Info.plist already declares
-          # ITSAppUsesNonExemptEncryption. What is given up is being told when
-          # Apple rejects a binary during processing, which this step never told
-          # us anyway: it failed on the token whether processing passed or not.
-          wait-for-processing: 'false'
+      # - name: Upload to App Store Connect
+      #   if: matrix.platform == 'ios'
+      #   uses: apple-actions/upload-testflight-build@155ea93be9ee6d5186c71f660a612f5eddb14510 # v5.6.0
+      #   with:
+      #     app-path: DPIP-${{ needs.version.outputs.label }}.ipa
+      #     issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+      #     api-key-id: ${{ secrets.APPSTORE_API_KEY_ID }}
+      #     api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+      #     # The upload finishes; the wait after it cannot. The action signs one
+      #     # App Store Connect JWT with a 600-second life (`n=600` in its bundled
+      #     # dist/index.js) and never re-signs it, while its own poll schedule
+      #     # sleeps 60 + 120 + 240 + 300 = 720 seconds before giving up. Any build
+      #     # that takes longer than the token lives reports
+      #     # `401 NOT_AUTHORIZED` — after the binary is already on TestFlight.
+      #     #
+      #     # Nothing here needs the wait: it exists so the action can write
+      #     # metadata afterwards, and this step sets neither `release-notes` nor
+      #     # `uses-non-exempt-encryption` — Info.plist already declares
+      #     # ITSAppUsesNonExemptEncryption. What is given up is being told when
+      #     # Apple rejects a binary during processing, which this step never told
+      #     # us anyway: it failed on the token whether processing passed or not.
+      #     wait-for-processing: 'false'
 
       # An Admin credential for the whole App Store Connect account. The runner
       # is ephemeral, but removing it costs one line.
@@ -471,27 +493,29 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dpip-${{ matrix.platform }}
-          path: DPIP-*.*
+          path: |
+            DPIP-*.*
+            ${{ runner.temp }}/DPIP-*-dSYMs.zip
           if-no-files-found: error
 
-  publish:
-    needs: [version, build]
-    runs-on: ubuntu-latest
-    # Write: it pushes the snapshot tag and creates the release.
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          # Kept, and the one place it is: `Publish` pushes the snapshot tag
-          # with `git push`. This job uploads no artifact for it to leak into.
-          persist-credentials: true
+  # publish:
+  #   needs: [version, build]
+  #   runs-on: ubuntu-latest
+  #   # Write: it pushes the snapshot tag and creates the release.
+  #   permissions:
+  #     contents: write
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #       with:
+  #         fetch-depth: 0
+  #         # Kept, and the one place it is: `Publish` pushes the snapshot tag
+  #         # with `git push`. This job uploads no artifact for it to leak into.
+  #         persist-credentials: true
 
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          path: artifacts
-          merge-multiple: true
+  #     - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+  #       with:
+  #         path: artifacts
+  #         merge-multiple: true
 
       # The ordinal rides in the body as an HTML comment: GitHub renders it as
       # nothing, so the note stays a note while the app still has something
@@ -499,56 +523,56 @@ jobs:
       # Built from the commit messages themselves — see tool/release/notes.sh
       # for why a release accumulates across the snapshots it followed while a
       # snapshot is only a delta.
-      - name: Release notes
-        env:
-          # Actions does not put GITHUB_TOKEN in the environment; a step has to
-          # ask. Without it notes.sh resolves authors unauthenticated, at 60
-          # requests an hour shared across everything on that runner's IP — and
-          # a rate-limited release produced a note that credited nobody and said
-          # nothing about why.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Through the environment rather than pasted into the script, as in
-          # `Build`.
-          RELEASE_LABEL: ${{ needs.version.outputs.label }}
-          RELEASE_CODE: ${{ needs.version.outputs.code }}
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            bash tool/release/notes.sh \
-              "$RELEASE_LABEL" \
-              "$RELEASE_CODE" --release > NOTES.md
-          else
-            bash tool/release/notes.sh \
-              "$RELEASE_LABEL" \
-              "$RELEASE_CODE" > NOTES.md
-          fi
-          cat NOTES.md
+      # - name: Release notes
+      #   env:
+      #     # Actions does not put GITHUB_TOKEN in the environment; a step has to
+      #     # ask. Without it notes.sh resolves authors unauthenticated, at 60
+      #     # requests an hour shared across everything on that runner's IP — and
+      #     # a rate-limited release produced a note that credited nobody and said
+      #     # nothing about why.
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     # Through the environment rather than pasted into the script, as in
+      #     # `Build`.
+      #     RELEASE_LABEL: ${{ needs.version.outputs.label }}
+      #     RELEASE_CODE: ${{ needs.version.outputs.code }}
+      #   run: |
+      #     if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+      #       bash tool/release/notes.sh \
+      #         "$RELEASE_LABEL" \
+      #         "$RELEASE_CODE" --release > NOTES.md
+      #     else
+      #       bash tool/release/notes.sh \
+      #         "$RELEASE_LABEL" \
+      #         "$RELEASE_CODE" > NOTES.md
+      #     fi
+      #     cat NOTES.md
 
-      - name: Publish
-        id: publish
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_LABEL: ${{ needs.version.outputs.label }}
-          RELEASE_PRERELEASE: ${{ needs.version.outputs.prerelease }}
-        run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            tag="${GITHUB_REF_NAME}"
-          else
-            # The bare label. `v[0-9]*` is what makes a build a release, so a
-            # snapshot named `26w33a` is already in its own namespace — and it
-            # is the name tool/release/version.sh counts to work out the next letter.
-            # An earlier `snapshot/` prefix put the tags somewhere the counter
-            # did not look, so every run computed `a` and this step died on a
-            # tag that already existed.
-            tag="$RELEASE_LABEL"
-            git tag "$tag"
-            git push origin "$tag"
-          fi
-          gh release create "$tag" \
-            --title "$RELEASE_LABEL" \
-            --notes-file NOTES.md \
-            --prerelease="$RELEASE_PRERELEASE" \
-            artifacts/*
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # - name: Publish
+      #   id: publish
+      #   env:
+      #     GH_TOKEN: ${{ github.token }}
+      #     RELEASE_LABEL: ${{ needs.version.outputs.label }}
+      #     RELEASE_PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      #   run: |
+      #     if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+      #       tag="${GITHUB_REF_NAME}"
+      #     else
+      #       # The bare label. `v[0-9]*` is what makes a build a release, so a
+      #       # snapshot named `26w33a` is already in its own namespace — and it
+      #       # is the name tool/release/version.sh counts to work out the next letter.
+      #       # An earlier `snapshot/` prefix put the tags somewhere the counter
+      #       # did not look, so every run computed `a` and this step died on a
+      #       # tag that already existed.
+      #       tag="$RELEASE_LABEL"
+      #       git tag "$tag"
+      #       git push origin "$tag"
+      #     fi
+      #     gh release create "$tag" \
+      #       --title "$RELEASE_LABEL" \
+      #       --notes-file NOTES.md \
+      #       --prerelease="$RELEASE_PRERELEASE" \
+      #       artifacts/*
+      #     echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # Here rather than in a workflow of its own listening on `release`.
       # GitHub refuses to start a workflow run from an event its own
@@ -559,28 +583,28 @@ jobs:
       # `published` would also have been the only safe type to listen for:
       # publishing a pre-release fires `published` *and* `prereleased`, so
       # asking for both announces every snapshot twice.
-      - name: Announce on Discord
-        if: always() && steps.publish.outputs.tag != ''
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          # Not secrets: a custom emoji's id is visible to everyone who can see
-          # the server, and it is useless without the webhook that is. Here
-          # rather than as defaults in the script, so a fork announcing to its
-          # own server falls back to the unicode pair instead of referencing
-          # emoji it does not have.
-          DPIP_EMOJI_ANDROID: "<:android:1539201870935892028>"
-          DPIP_EMOJI_IOS: "<:ios:1539201897766981692>"
-          # Without it the release lookup runs unauthenticated, at 60 requests
-          # an hour shared across everything on this runner's IP.
-          GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.publish.outputs.tag }}
-        run: |
-          if [ -z "${DISCORD_WEBHOOK:-}" ]; then
-            echo "::notice::DISCORD_WEBHOOK is not set — nothing announced"
-            exit 0
-          fi
-          # A warning, not a failure. The build is published and the artifacts
-          # are downloadable by the time this runs; turning the job red over an
-          # announcement would say the release did not happen.
-          python3 tool/release/discord.py "$RELEASE_TAG" ||
-            echo "::warning::Discord announcement failed — the release itself is fine"
+      # - name: Announce on Discord
+      #   if: always() && steps.publish.outputs.tag != ''
+      #   env:
+      #     DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+      #     # Not secrets: a custom emoji's id is visible to everyone who can see
+      #     # the server, and it is useless without the webhook that is. Here
+      #     # rather than as defaults in the script, so a fork announcing to its
+      #     # own server falls back to the unicode pair instead of referencing
+      #     # emoji it does not have.
+      #     DPIP_EMOJI_ANDROID: "<:android:1539201870935892028>"
+      #     DPIP_EMOJI_IOS: "<:ios:1539201897766981692>"
+      #     # Without it the release lookup runs unauthenticated, at 60 requests
+      #     # an hour shared across everything on this runner's IP.
+      #     GITHUB_TOKEN: ${{ github.token }}
+      #     RELEASE_TAG: ${{ steps.publish.outputs.tag }}
+      #   run: |
+      #     if [ -z "${DISCORD_WEBHOOK:-}" ]; then
+      #       echo "::notice::DISCORD_WEBHOOK is not set — nothing announced"
+      #       exit 0
+      #     fi
+      #     # A warning, not a failure. The build is published and the artifacts
+      #     # are downloadable by the time this runs; turning the job red over an
+      #     # announcement would say the release did not happen.
+      #     python3 tool/release/discord.py "$RELEASE_TAG" ||
+      #       echo "::warning::Discord announcement failed — the release itself is fine"
