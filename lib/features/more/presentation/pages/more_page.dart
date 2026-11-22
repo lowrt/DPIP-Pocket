@@ -6,6 +6,8 @@ import 'package:dpip/app/theme/app_spacing.dart';
 import 'package:dpip/core/error/result.dart';
 import 'package:dpip/core/logging/log.dart';
 import 'package:dpip/core/geo/town_directory.dart';
+import 'package:dpip/core/geo/location_monitor.dart';
+import 'package:dpip/core/geo/manual_notification_location.dart';
 import 'package:dpip/core/meshtastic/mesh_unread.dart';
 import 'package:dpip/features/bug_tracker/bug_tracker_counter.dart';
 import 'package:dpip/core/network/endpoint_health.dart';
@@ -67,6 +69,13 @@ class MorePage extends StatelessWidget {
               children: [
                 const _SavedRegionsTile(),
                 _SaveNote(l10n: l10n),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _MoreGroup(
+              children: [
+                const _GpsLocationTile(),
+                const _ManualNotificationLocationTile(),
               ],
             ),
             SectionHeader(l10n.moreSectionNotify),
@@ -676,6 +685,93 @@ class _SavedRegionsTileState extends State<_SavedRegionsTile> {
     );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  }
+}
+
+
+class _GpsLocationTile extends StatelessWidget {
+  const _GpsLocationTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final monitor = context.watch<LocationMonitor>();
+    return SwitchListTile(
+      secondary: const Icon(Icons.my_location),
+      title: Text(l10n.locationGpsEnabledTitle),
+      subtitle: Text(l10n.locationGpsEnabledDescription),
+      value: monitor.gpsEnabled,
+      onChanged: monitor.setGpsEnabled,
+    );
+  }
+}
+
+class _ManualNotificationLocationTile extends StatelessWidget {
+  const _ManualNotificationLocationTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final manual = context.watch<ManualNotificationLocation>();
+    final town = manual.town;
+    final label = town?.fullName ??
+        (manual.isManual ? l10n.notifyLocationManual : l10n.notifyLocationGps);
+    return ListTile(
+      leading: const Icon(Icons.notifications_active_outlined),
+      title: Text(l10n.notifyLocationTitle),
+      subtitle: Text('$label\\n${l10n.notifyLocationDescription}'),
+      trailing: Wrap(
+        children: [
+          if (manual.isManual)
+            IconButton(
+              tooltip: l10n.notifyLocationGps,
+              onPressed: manual.isSaving ? null : manual.clear,
+              icon: const Icon(Icons.my_location),
+            ),
+          IconButton(
+            tooltip: l10n.notifyLocationChoose,
+            onPressed: manual.isSaving
+                ? null
+                : () async {
+                    final directory = context.read<TownDirectory>();
+                    final city = await showDialog<String>(
+                      context: context,
+                      builder: (dialogContext) => SimpleDialog(
+                        title: Text(l10n.notifyLocationChoose),
+                        children: [
+                          for (final name in directory.cities)
+                            SimpleDialogOption(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, name),
+                              child: Text(name),
+                            ),
+                        ],
+                      ),
+                    );
+                    if (city == null || !context.mounted) return;
+                    final code = await showDialog<String>(
+                      context: context,
+                      builder: (dialogContext) => SimpleDialog(
+                        title: Text(city),
+                        children: [
+                          for (final item in directory.townsInCity(city))
+                            SimpleDialogOption(
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, item.code),
+                              child: Text(item.townName),
+                            ),
+                        ],
+                      ),
+                    );
+                    if (code == null || !context.mounted) return;
+                    final item = directory.byCode(code);
+                    if (item != null) await manual.select(item);
+                  },
+            icon: const Icon(Icons.edit_location_alt_outlined),
+          ),
+        ],
+      ),
+    );
   }
 }
 

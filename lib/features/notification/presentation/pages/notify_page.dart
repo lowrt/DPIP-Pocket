@@ -62,16 +62,16 @@ class _NotifyView extends StatelessWidget {
         ],
       ),
       body: switch (controller.status) {
-        NotifyLoadStatus.noToken => EmptyView(
-          icon: Icons.notifications_off_outlined,
-          message: l10n.notifyUnavailable,
-        ),
-        NotifyLoadStatus.loading => const LoadingView(),
-        NotifyLoadStatus.error => ErrorView(
-          detail: controller.failure?.message,
-          onRetry: controller.load,
-        ),
-        NotifyLoadStatus.ready => _NotifyList(controller: controller),
+              NotifyLoadStatus.noToken => EmptyView(
+                icon: Icons.notifications_off_outlined,
+                message: l10n.notifyUnavailable,
+              ),
+              NotifyLoadStatus.loading => const LoadingView(),
+              NotifyLoadStatus.error => ErrorView(
+                detail: controller.failure?.message,
+                onRetry: controller.load,
+              ),
+              NotifyLoadStatus.ready => _NotifyList(controller: controller),
       },
     );
   }

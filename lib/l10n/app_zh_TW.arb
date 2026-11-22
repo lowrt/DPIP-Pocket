@@ -2140,5 +2140,13 @@
   "seismometerSampleRate": "取樣率",
   "seismometerReset": "重設",
   "seismometerDisclaimer": "請將手機平放在穩固的平面上。手機感測器精度有限，量測結果僅供參考，不代表中央氣象署發布的震度。",
-  "seismometerAlgorithm": "依 ES-Net 的 JMA 計測震度演算法計算"
+  "seismometerAlgorithm": "依 ES-Net 的 JMA 計測震度演算法計算",
+  "notifyLocationTitle": "通知所在地",
+  "notifyLocationDescription": "選擇固定的通知鄉鎮；未設定時會依照 GPS 自動更新。",
+  "notifyLocationChoose": "選擇鄉鎮",
+  "notifyLocationGps": "使用 GPS 自動定位",
+  "notifyLocationManual": "手動設定",
+  "regionManageDescription": "常用地區僅供首頁快速切換，不會改變通知所在地。",
+  "locationGpsEnabledTitle": "GPS 定位",
+  "locationGpsEnabledDescription": "關閉後，DPIP 將停止取得目前位置及背景位置回報；手動通知所在地仍可使用。"
 }

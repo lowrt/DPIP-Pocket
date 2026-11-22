@@ -43,17 +43,22 @@ class DeviceLocationReporter {
     required this._onMoved,
     required this._settings,
     this._onReported,
+    bool Function()? canReport,
     this.minUploadInterval = const Duration(seconds: 60),
     DateTime Function()? now,
     // wall-clock: the throttle stamp is written and compared by this class
     // alone, so it only has to agree with itself; a stamp a clock change left
     // in the future is handled in [_handle].
-  }) : _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now,
+       _canReport = canReport ?? _alwaysReport;
 
   final Stream<GpsFix> Function() _positions;
   final Future<bool> Function(GpsFix fix) _onMoved;
   final SettingsStore _settings;
   final DateTime Function() _now;
+  final bool Function() _canReport;
+
+  static bool _alwaysReport() => true;
 
   /// Called after every report the server answered with a 2xx.
   final Future<void> Function()? _onReported;
@@ -123,7 +128,7 @@ class DeviceLocationReporter {
     // when the server report fails or is skipped for a missing push token /
     // throttle window.
     if (!_fixes.isClosed) _fixes.add(fix);
-    await _send(fix);
+    if (_canReport()) await _send(fix);
   }
 
   /// Reports [fix] now, subject to the same throttle as a move. Never throws.
@@ -188,6 +193,11 @@ class DeviceLocationReporter {
     _sub?.cancel();
     _sub = null;
   }
+
+  /// Stops the stream and waits for any report already in flight. Used when
+  /// switching to a fixed notification township so an older GPS request cannot
+  /// finish after the manual coordinate is published.
+  Future<void> waitForReports() => _queue;
 
   void dispose() {
     stop();

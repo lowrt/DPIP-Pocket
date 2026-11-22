@@ -15,6 +15,7 @@ import 'package:dpip/core/diagnostics/startup_report.dart';
 import 'package:dpip/core/geo/device_location_reporter.dart';
 import 'package:dpip/core/geo/device_registration.dart';
 import 'package:dpip/core/geo/location_api.dart';
+import 'package:dpip/core/geo/manual_notification_location.dart';
 import 'package:dpip/core/logging/log.dart';
 import 'package:dpip/core/logging/native_log_import.dart';
 import 'package:dpip/core/version/app_build.dart';
@@ -361,9 +362,11 @@ Future<void> bootstrap() async {
   // Late because the two refer to each other: the registration reports through
   // the reporter, and the reporter tells the registration about every 2xx.
   late final DeviceRegistration deviceRegistration;
+  late final ManualNotificationLocation manualNotificationLocation;
   final deviceLocationReporter = DeviceLocationReporter(
     positions: () => locationService.positionStream(),
     settings: settings,
+    canReport: () => !manualNotificationLocation.isManual,
     onReported: () => deviceRegistration.recordSuccess(),
     onMoved: (fix) async {
       final token = notificationService.token;
@@ -400,9 +403,31 @@ Future<void> bootstrap() async {
     token: () => notificationService.token,
     // No prompt and no wait on a cold GPS: a fresh cached fix first, else a
     // live one — the township is all the server needs.
-    fix: locationService.currentFix,
-    report: deviceLocationReporter.reportNow,
+    fix: () => manualNotificationLocation.resolveFix(),
+    report: (fix) async {
+      // A registration may have resolved GPS just before the user selected a
+      // fixed township. Re-resolve at send time so that queued registration
+      // work cannot publish the stale GPS coordinate after the manual update.
+      if (manualNotificationLocation.isManual) {
+        final manualFix = await manualNotificationLocation.resolveFix();
+        return deviceLocationReporter.reportNow(manualFix ?? fix);
+      }
+      return deviceLocationReporter.reportNow(fix);
+    },
     nativeLastSuccess: backgroundLocation.lastSuccessAt,
+  );
+
+  manualNotificationLocation = ManualNotificationLocation(
+    settings: settings,
+    towns: townDirectory,
+    location: locationService,
+    reporter: deviceLocationReporter,
+    background: backgroundLocation,
+    api: locationApi,
+    notifications: notificationService,
+    platform: reportPlatform,
+    version: appVersion,
+    recordSuccess: deviceRegistration.recordSuccess,
   );
 
   // Watches the OS location toggle / permission and recovers reporting after a
@@ -418,6 +443,11 @@ Future<void> bootstrap() async {
     location: locationService,
     reporter: deviceLocationReporter,
     regions: regionStore,
+    settings: settings,
+    background: backgroundLocation,
+    pushToken: () => notificationService.token,
+    isManual: () => manualNotificationLocation.isManual,
+    onGpsEnabled: () => deviceRegistration.ensure('GPS enabled'),
   );
 
   // The mesh link is app-wide, not page-owned: a radio stays attached (and
@@ -458,6 +488,7 @@ Future<void> bootstrap() async {
     locationService: locationService,
     deviceLocationReporter: deviceLocationReporter,
     deviceRegistration: deviceRegistration,
+    manualNotificationLocation: manualNotificationLocation,
     backgroundLocation: backgroundLocation,
     locationMonitor: locationMonitor,
     permissionHealth: permissionHealth,

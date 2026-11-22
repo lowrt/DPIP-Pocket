@@ -1,6 +1,7 @@
 import 'package:dpip/core/geo/device_location_reporter.dart';
 import 'package:dpip/core/geo/device_registration.dart';
 import 'package:dpip/core/geo/location_monitor.dart';
+import 'package:dpip/core/geo/manual_notification_location.dart';
 import 'package:dpip/core/geo/location_service.dart';
 import 'package:dpip/core/geo/town_boundaries.dart';
 import 'package:dpip/core/geo/town_directory.dart';
@@ -64,6 +65,7 @@ class SharedDeps {
     required this.locationService,
     required this.deviceLocationReporter,
     this.deviceRegistration,
+    required this.manualNotificationLocation,
     required this.backgroundLocation,
     required this.locationMonitor,
     required this.permissionHealth,
@@ -135,6 +137,9 @@ class SharedDeps {
   /// day. Optional so a test that never reaches the services host need not
   /// build one; bootstrap always does.
   final DeviceRegistration? deviceRegistration;
+
+  /// Optional fixed township used only for notification targeting.
+  final ManualNotificationLocation manualNotificationLocation;
 
   /// Native background device-location reporting (terminated/background). The
   /// terminated-state counterpart to [deviceLocationReporter].

@@ -2,6 +2,7 @@ import 'package:dpip/app/theme/app_glass.dart';
 import 'package:dpip/app/theme/app_radius.dart';
 import 'package:dpip/app/theme/app_spacing.dart';
 import 'package:dpip/core/geo/town_directory.dart';
+import 'package:dpip/core/geo/manual_notification_location.dart';
 import 'package:dpip/core/settings/region_store.dart';
 import 'package:dpip/l10n/gen/app_localizations.dart';
 import 'package:dpip/shared/widgets/area_page_sync.dart';
@@ -56,6 +57,7 @@ class _RegionBarState extends State<RegionBar> with AreaPageSyncMixin {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<RegionStore>();
+    final manualLocation = context.watch<ManualNotificationLocation>();
     syncAreaPageOffscreen(store.selectedIndex);
     // Read `areas` once (the getter allocates a fresh list each call).
     final areas = store.areas;
@@ -87,11 +89,17 @@ class _RegionBarState extends State<RegionBar> with AreaPageSyncMixin {
                     // below: the label is a directory lookup that does not
                     // depend on the page position, and the builder runs for
                     // every visible badge on every pixel of the slide.
-                    final label = regionAreaLabel(
+                    final baseLabel = regionAreaLabel(
                       l10n,
                       directory,
                       areas[index],
                     );
+                    final sourceLabel = manualLocation.isManual
+                        ? l10n.notifyLocationManual
+                        : l10n.notifyLocationGps;
+                    final label = index == 1
+                        ? '$baseLabel · $sourceLabel'
+                        : baseLabel;
                     return AnimatedBuilder(
                       animation: areaPageController,
                       builder: (context, _) => _RegionBadge(

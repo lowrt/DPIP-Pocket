@@ -184,6 +184,14 @@ abstract final class SettingKeys {
     'notification.pushToken',
   );
 
+  /// Whether app-wide GPS is enabled. Missing preserves the legacy enabled default.
+  static const SettingKey<bool> gpsEnabled = SettingKey<bool>._('location.gpsEnabled');
+
+  /// Manually selected township used for notification targeting. Absent means
+  /// the device's live GPS location remains the notification location.
+  static const SettingKey<String> manualNotificationTownCode =
+      SettingKey<String>._('notification.manualTownCode');
+
   /// Notification-channel catalogue version (forces Android re-create). See
   /// `NotificationService`.
   static const SettingKey<int> channelVersion = SettingKey<int>._(

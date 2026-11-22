@@ -4492,5 +4492,13 @@
   "seismometerAlgorithm": "Computed with the JMA instrumental intensity method used by ES-Net",
   "@seismometerAlgorithm": {
     "description": "Names the JMA instrumental-intensity method used to compute the reading"
-  }
+  },
+  "notifyLocationTitle": "Notification location",
+  "notifyLocationDescription": "Choose a fixed township for alerts. Without one, GPS updates the location automatically.",
+  "notifyLocationChoose": "Choose township",
+  "notifyLocationGps": "Use GPS location",
+  "notifyLocationManual": "Manual",
+  "regionManageDescription": "Saved regions are shortcuts for the Home screen and do not change your notification location.",
+  "locationGpsEnabledTitle": "App-wide GPS location",
+  "locationGpsEnabledDescription": "Turn off to stop foreground location updates and background location reporting. A fixed notification township remains available."
 }

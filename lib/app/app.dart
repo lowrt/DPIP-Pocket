@@ -8,6 +8,7 @@ import 'package:dpip/core/diagnostics/startup_report.dart';
 import 'package:dpip/core/geo/device_location_reporter.dart';
 import 'package:dpip/core/geo/device_registration.dart';
 import 'package:dpip/core/geo/location_monitor.dart';
+import 'package:dpip/core/geo/manual_notification_location.dart';
 import 'package:dpip/core/geo/location_service.dart';
 import 'package:dpip/core/logging/log.dart';
 import 'package:dpip/core/notifications/notification_service.dart';
@@ -59,6 +60,7 @@ class DpipApp extends StatelessWidget {
         widgetLocationCatalogCoordinator: deps.widgetLocationCatalogCoordinator,
         deviceLocationReporter: deps.deviceLocationReporter,
         deviceRegistration: deps.deviceRegistration,
+        manualNotificationLocation: deps.manualNotificationLocation,
         backgroundLocation: deps.backgroundLocation,
         locationMonitor: deps.locationMonitor,
         permissionHealth: deps.permissionHealth,
@@ -155,6 +157,7 @@ class _AppServicesHost extends StatefulWidget {
     required this.widgetLocationCatalogCoordinator,
     required this.deviceLocationReporter,
     required this.deviceRegistration,
+    this.manualNotificationLocation,
     required this.backgroundLocation,
     required this.locationMonitor,
     required this.permissionHealth,
@@ -169,6 +172,7 @@ class _AppServicesHost extends StatefulWidget {
   final WidgetLocationCatalogCoordinator widgetLocationCatalogCoordinator;
   final DeviceLocationReporter deviceLocationReporter;
   final DeviceRegistration? deviceRegistration;
+  final ManualNotificationLocation? manualNotificationLocation;
   final BackgroundLocationService backgroundLocation;
   final LocationMonitor locationMonitor;
   final PermissionHealth permissionHealth;
@@ -262,7 +266,7 @@ class _AppServicesHostState extends State<_AppServicesHost>
     // warm foreground is the reliable re-arm point. (The monitor handles the
     // foreground reporter + town on resume.)
     if (state == AppLifecycleState.resumed && _ready) {
-      _armBackground();
+      if (widget.locationMonitor.gpsEnabled && !(widget.manualNotificationLocation?.isManual ?? false)) _armBackground();
       _register('resume');
     }
     // Going to the background is the moment the process is most likely to be
@@ -276,13 +280,29 @@ class _AppServicesHostState extends State<_AppServicesHost>
   /// Resolves the current township and starts reporting — but only when
   /// foreground location is already granted. Never requests (see [_onReady]).
   Future<void> _startLocationIfGranted() async {
-    if (!await widget.locationService.granted()) return;
+    if (!widget.locationMonitor.gpsEnabled) {
+      if (widget.manualNotificationLocation.isManual) _register('launch (manual notification township; GPS disabled)');
+      await widget.backgroundLocation.stop();
+      return;
+    }
+    final granted = await widget.locationService.granted();
+    if (!widget.locationMonitor.gpsEnabled) {
+      await widget.backgroundLocation.stop();
+      return;
+    }
+    if (!granted) {
+      if (widget.manualNotificationLocation.isManual) {
+        _register('launch (manual notification township)');
+        await widget.backgroundLocation.stop();
+      }
+      return;
+    }
     if (!mounted) return;
     // Independent of the town fix below, which can take up to 10 s cold —
     // foreground move reporting starts immediately rather than behind it.
     widget.deviceLocationReporter.start();
     final town = await widget.locationService.currentTown();
-    if (!mounted) return;
+    if (!mounted || !widget.locationMonitor.gpsEnabled) return;
     widget.regionStore.setCurrentCode(town?.code);
     // After the town fix, so the registration's position is the cached one it
     // just produced rather than a second cold GPS read. Before arming native
@@ -300,7 +320,9 @@ class _AppServicesHostState extends State<_AppServicesHost>
   /// both with whatever token is stored by then.
   void _onTokenChanged() {
     if (!_ready) return;
-    unawaited(_armBackground());
+    if (widget.locationMonitor.gpsEnabled && !widget.manualNotificationLocation.isManual) {
+      unawaited(_armBackground());
+    }
     _register('push token changed');
   }
 
@@ -320,6 +342,10 @@ class _AppServicesHostState extends State<_AppServicesHost>
   /// and replayed in the in-app log page, which is where this gets diagnosed
   /// from a user's phone.
   Future<void> _armBackground() async {
+    if (!widget.locationMonitor.gpsEnabled || widget.manualNotificationLocation.isManual) {
+      await widget.backgroundLocation.stop();
+      return;
+    }
     final token = widget.notificationService.token;
     if (token == null) {
       Log.info('background location: no push token yet — not armed');
@@ -342,6 +368,7 @@ class _AppServicesHostState extends State<_AppServicesHost>
     widget.onboarding.removeListener(_onOnboardingChanged);
     unawaited(_tokenChanges?.cancel());
     widget.deviceRegistration?.dispose();
+    widget.manualNotificationLocation?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     widget.widgetLocationCatalogCoordinator.dispose();
     _observer.dispose();

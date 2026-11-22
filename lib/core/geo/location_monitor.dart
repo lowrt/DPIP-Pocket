@@ -8,7 +8,10 @@ import 'dart:async';
 import 'package:dpip/core/geo/device_location_reporter.dart';
 import 'package:dpip/core/geo/location_service.dart';
 import 'package:dpip/core/geo/location_status.dart';
+import 'package:dpip/core/platform/background_location.dart';
 import 'package:dpip/core/settings/region_store.dart';
+import 'package:dpip/core/settings/setting_keys.dart';
+import 'package:dpip/core/settings/settings_store.dart';
 import 'package:flutter/widgets.dart';
 
 /// Tracks the combined [LocationStatus] and recovers reporting when the OS
@@ -25,11 +28,67 @@ class LocationMonitor extends ChangeNotifier with WidgetsBindingObserver {
     required this._location,
     required this._reporter,
     required this._regions,
-  });
+    SettingsStore? settings,
+    BackgroundLocationService? background,
+    String? Function()? pushToken,
+    bool Function()? isManual,
+    Future<void> Function()? onGpsEnabled,
+  }) : _settings = settings,
+       _background = background,
+       _pushToken = pushToken,
+       _isManual = isManual,
+       _onGpsEnabled = onGpsEnabled;
 
   final LocationService _location;
   final DeviceLocationReporter _reporter;
   final RegionStore _regions;
+  final SettingsStore? _settings;
+  final BackgroundLocationService? _background;
+  final String? Function()? _pushToken;
+  final bool Function()? _isManual;
+  final Future<void> Function()? _onGpsEnabled;
+
+  /// Missing preference keeps GPS enabled for existing installations.
+  bool get gpsEnabled => _settings?.getBool(SettingKeys.gpsEnabled) ?? true;
+
+  /// Stops every automatic location path without touching a manual alert target.
+  Future<void> setGpsEnabled(bool enabled) async {
+    if (gpsEnabled == enabled) return;
+    if (_settings != null) {
+      await _settings.setBool(SettingKeys.gpsEnabled, enabled);
+    }
+    if (!enabled) {
+      _reporter.stop();
+      await _background?.stop();
+      _publishedCode = null;
+      _regions.setCurrentCode(null);
+      _status = LocationStatus.ready;
+      notifyListeners();
+      return;
+    }
+    await _refresh();
+    if (!gpsEnabled || !_usable(_status)) return;
+    _reporter.start();
+    final code = (await _location.currentTown())?.code;
+    if (!gpsEnabled) return;
+    _publishedCode = code;
+    _regions.setCurrentCode(code);
+    await _armBackground();
+    await _onGpsEnabled?.call();
+  }
+
+  Future<void> _armBackground() async {
+    if (!gpsEnabled || (_isManual?.call() ?? false)) {
+      await _background.stop();
+      return;
+    }
+    final token = _pushToken?.call();
+    if (token != null && await _location.backgroundGranted()) {
+      await _background?.start(token);
+    } else {
+      await _background.stop();
+    }
+  }
 
   StreamSubscription<bool>? _serviceSub;
   StreamSubscription<GpsFix>? _fixSub;
@@ -46,9 +105,10 @@ class LocationMonitor extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Whether the current status warrants a user-facing banner (can't locate).
   bool get needsAttention =>
-      _status == LocationStatus.serviceOff ||
-      _status == LocationStatus.denied ||
-      _status == LocationStatus.deniedForever;
+      gpsEnabled &&
+      (_status == LocationStatus.serviceOff ||
+          _status == LocationStatus.denied ||
+          _status == LocationStatus.deniedForever);
 
   /// Begins monitoring (idempotent): seeds the status, watches the OS location
   /// toggle, and re-checks on every foreground resume.
@@ -79,7 +139,7 @@ class LocationMonitor extends ChangeNotifier with WidgetsBindingObserver {
   /// from.
   Future<void> _onFix(GpsFix fix) async {
     final code = (await _location.townAt(fix.lat, fix.lng))?.code;
-    if (code == _publishedCode) return;
+    if (!gpsEnabled || code == _publishedCode) return;
     _publishedCode = code;
     _regions.setCurrentCode(code);
   }
@@ -90,8 +150,16 @@ class LocationMonitor extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _refresh() async {
+    if (!gpsEnabled) {
+      if (_status != LocationStatus.ready) {
+        _status = LocationStatus.ready;
+        notifyListeners();
+      }
+      return;
+    }
     final previous = _status;
     final status = await _location.status();
+    if (!gpsEnabled) return;
     _status = status;
     final wasUsable = _usable(previous);
     final nowUsable = _usable(status);
@@ -109,10 +177,13 @@ class LocationMonitor extends ChangeNotifier with WidgetsBindingObserver {
     // Recover only on an unusable → usable transition (services back / granted),
     // not on every resume — avoids re-subscribing the position stream needlessly.
     if (_seeded && nowUsable && !wasUsable) {
-      _reporter.restart();
+      _reporter.start();
       final code = (await _location.currentTown())?.code;
+      if (!gpsEnabled) return;
       _publishedCode = code;
       _regions.setCurrentCode(code);
+      await _armBackground();
+      if (gpsEnabled) await _onGpsEnabled();
     }
     _seeded = true;
     if (status != previous) notifyListeners();

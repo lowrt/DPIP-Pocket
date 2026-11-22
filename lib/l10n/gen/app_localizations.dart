@@ -75,6 +75,16 @@ abstract class AppLocalizations {
 
   final String localeName;
 
+  String get notifyLocationTitle => 'Notification location';
+  String get notifyLocationDescription =>
+      'Choose a fixed township for alerts. Without one, GPS updates the location automatically.';
+  String get notifyLocationChoose => 'Choose township';
+  String get notifyLocationGps => 'Use GPS location';
+  String get notifyLocationManual => 'Manual';
+  String get regionManageDescription => 'Saved regions are shortcuts for the Home screen and do not change your notification location.';
+  String get locationGpsEnabledTitle => 'App-wide GPS location';
+  String get locationGpsEnabledDescription => 'Turn off to stop foreground location updates and background location reporting. A fixed notification township remains available.';
+
   static AppLocalizations of(BuildContext context) {
     return Localizations.of<AppLocalizations>(context, AppLocalizations)!;
   }

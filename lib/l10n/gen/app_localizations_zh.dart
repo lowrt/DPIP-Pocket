@@ -9,6 +9,23 @@ import 'app_localizations.dart';
 
 /// The translations for Chinese (`zh`).
 class AppLocalizationsZh extends AppLocalizations {
+  @override
+  String get notifyLocationTitle => '通知所在地';
+  @override
+  String get notifyLocationDescription => '選擇固定的通知鄉鎮；未設定時會依照 GPS 自動更新。';
+  @override
+  String get notifyLocationChoose => '選擇鄉鎮';
+  @override
+  String get notifyLocationGps => '使用 GPS 自動定位';
+  @override
+  String get notifyLocationManual => '手動設定';
+  @override
+  String get regionManageDescription => '常用地區僅供首頁快速切換，不會改變通知所在地。';
+  @override
+  String get locationGpsEnabledTitle => 'GPS 定位';
+  @override
+  String get locationGpsEnabledDescription => '關閉後，DPIP 將停止取得目前位置及背景位置回報；手動通知所在地仍可使用。';
+
   AppLocalizationsZh([String locale = 'zh']) : super(locale);
 
   @override
